@@ -5,6 +5,7 @@ import (
 	"image"
 	"image/color"
 	"math"
+	"strings"
 	"time"
 
 	"cyberfarm/internal/domain"
@@ -44,14 +45,14 @@ func NewGame(svc *usecase.Service) *Game {
 	return &Game{
 		svc:           svc,
 		tile:          36,
-		margin:        18,
-		midWidth:      360,
-		shopWidth:     280,
-		columnGap:     28,
-		columnPad:     16,
-		btnW:          320,
-		btnH:          38,
-		btnPad:        12,
+		margin:        20,
+		midWidth:      460,
+		shopWidth:     340,
+		columnGap:     32,
+		columnPad:     18,
+		btnW:          420,
+		btnH:          44,
+		btnPad:        14,
 		faces:         loadFaces(),
 		hoveredButton: -1,
 		hoveredPlot:   -1,
@@ -201,84 +202,119 @@ func (g *Game) Draw(screen *ebiten.Image) {
 	drawNeonText(screen, title, g.faces.Large, sw/2-tw/2, g.margin+22, color.RGBA{0xff, 0x2e, 0xa8, 0xff})
 
 	midX := g.midColumnX() + g.columnPad
+	midW := g.midWidth - g.columnPad*2
 	shopX := g.shopColumnX() + g.columnPad
 	colTop := g.columnTop()
 	white := color.RGBA{0xe8, 0xff, 0xff, 0xff}
 	accent := color.RGBA{0x82, 0xff, 0xf9, 0xff}
 	muted := color.RGBA{0xad, 0xb6, 0xc5, 0xff}
 
-	drawNeonText(screen, "Управление фермой", g.faces.Large, midX, colTop+6, accent)
-	drawNeonText(screen, fmt.Sprintf("Дублоны: %d", st.Coins), g.faces.Normal, midX, colTop+44, white)
-	drawNeonText(screen, fmt.Sprintf("Счёт: %.1f", st.TotalScore), g.faces.Normal, midX, colTop+68, white)
+	statsY := colTop + 6
+	drawCard(screen, midX-6, statsY-6, midW+12, g.statsHeight())
+	drawNeonText(screen, "Управление фермой", g.faces.Large, midX, statsY, accent)
+	drawNeonText(screen, fmt.Sprintf("Дублоны: %d", st.Coins), g.faces.Normal, midX, statsY+30, white)
+	drawNeonText(screen, fmt.Sprintf("Счёт: %.1f", st.TotalScore), g.faces.Normal, midX, statsY+52, white)
+	for i, line := range wrapText(g.faces.Small, "Выберите клетку поля и действие слева. В магазине справа открывайте или пополняйте семена.", midW-16) {
+		text.Draw(screen, line, g.faces.Small, midX, statsY+72+i*14, muted)
+	}
 
-	text.Draw(screen, "Выберите клетку поля", g.faces.Normal, midX, colTop+98, muted)
-	text.Draw(screen, "и действие:", g.faces.Normal, midX, colTop+120, muted)
+	actionX := midX
+	colW := (g.midWidth - g.columnPad*3) / 2
+	upgradeX := actionX + colW + g.columnPad
+	actionsY := g.actionsStartY()
+	actionBlockH := g.actionCount() * (g.btnH + g.btnPad)
+	upgradeBlockH := g.upgradeCount() * (g.btnH + g.btnPad)
+	blockH := actionBlockH
+	if upgradeBlockH > blockH {
+		blockH = upgradeBlockH
+	}
+	drawCard(screen, actionX-6, actionsY-g.btnPad/2-4, midW+12, blockH+g.btnPad+8)
+	text.Draw(screen, "Действия", g.faces.Normal, actionX, actionsY-g.btnPad/2-8, accent)
+	text.Draw(screen, "Улучшения", g.faces.Normal, upgradeX, actionsY-g.btnPad/2-8, accent)
 
 	for i, b := range g.buttons {
 		g.drawButton(screen, b, i == g.hoveredButton)
 	}
 
 	selY := g.selectionStartY()
-	drawNeonText(screen, "Выберите семя для посадки:", g.faces.Normal, midX, selY-g.btnPad*2, white)
+	selCardH := g.selectionRows()*(g.btnH+g.btnPad) + g.btnPad
+	drawCard(screen, midX-6, selY-g.btnPad-6, midW+12, selCardH+12)
+	drawNeonText(screen, "Выберите семя для посадки", g.faces.Normal, midX, selY-g.btnPad-2, white)
 
 	infoY := g.infoStartY()
-	drawNeonText(screen, "Состояние поля", g.faces.Normal, midX, infoY, accent)
-	infoY += 22
+	drawCard(screen, midX-6, infoY-10, midW+12, g.infoBlockHeight())
+	drawNeonText(screen, "Состояние поля", g.faces.Normal, midX, infoY-4, accent)
+	infoY += 10
 	if st.SelectedPlot >= 0 && st.SelectedPlot < len(st.Plots) {
 		p := st.Plots[st.SelectedPlot]
 		text.Draw(screen, fmt.Sprintf("Клетка #%d", st.SelectedPlot+1), g.faces.Small, midX, infoY, white)
-		infoY += 18
+		infoY += 16
 		text.Draw(screen, fmt.Sprintf("Куплена: %s", yesNo(p.Bought)), g.faces.Small, midX, infoY, white)
-		infoY += 18
+		infoY += 16
 		text.Draw(screen, fmt.Sprintf("Растение: %s", plantNameOrDash(p)), g.faces.Small, midX, infoY, white)
-		infoY += 18
+		infoY += 16
 		text.Draw(screen, fmt.Sprintf("Полита: %s", yesNo(p.Watered)), g.faces.Small, midX, infoY, white)
-		infoY += 18
+		infoY += 16
 		text.Draw(screen, fmt.Sprintf("Готово к сбору: %s", yesNo(p.Harvestable)), g.faces.Small, midX, infoY, white)
-		infoY += 22
+		infoY += 18
 	} else {
 		text.Draw(screen, "Клетка не выбрана", g.faces.Small, midX, infoY, white)
-		infoY += 22
+		infoY += 18
 	}
 
 	drawNeonText(screen, "Инвентарь", g.faces.Normal, midX, infoY, accent)
-	infoY += 20
-	text.Draw(screen, fmt.Sprintf("Семена: помидор %d | огурец %d", st.Seeds[domain.PlantTomato], st.Seeds[domain.PlantCucumber]), g.faces.Small, midX, infoY, white)
-	infoY += 18
-	text.Draw(screen, fmt.Sprintf("картофель %d | морковь %d", st.Seeds[domain.PlantPotato], st.Seeds[domain.PlantCarrot]), g.faces.Small, midX, infoY, white)
-	infoY += 18
-	text.Draw(screen, fmt.Sprintf("брюква %d | капуста %d", st.Seeds[domain.PlantTurnip], st.Seeds[domain.PlantCabbage]), g.faces.Small, midX, infoY, white)
-	infoY += 18
-	text.Draw(screen, fmt.Sprintf("свекла %d | подсолнух %d", st.Seeds[domain.PlantBeet], st.Seeds[domain.PlantSunflower]), g.faces.Small, midX, infoY, white)
-	infoY += 18
+	infoY += 16
+	seedLines := []string{
+		fmt.Sprintf("помидор %d | огурец %d", st.Seeds[domain.PlantTomato], st.Seeds[domain.PlantCucumber]),
+		fmt.Sprintf("картофель %d | морковь %d", st.Seeds[domain.PlantPotato], st.Seeds[domain.PlantCarrot]),
+		fmt.Sprintf("брюква %d | капуста %d", st.Seeds[domain.PlantTurnip], st.Seeds[domain.PlantCabbage]),
+		fmt.Sprintf("свекла %d | подсолнух %d", st.Seeds[domain.PlantBeet], st.Seeds[domain.PlantSunflower]),
+	}
+	for _, line := range seedLines {
+		text.Draw(screen, line, g.faces.Small, midX, infoY, white)
+		infoY += 14
+	}
+	infoY += 4
 	text.Draw(screen, fmt.Sprintf("Урожай: %v", st.Produce), g.faces.Small, midX, infoY, white)
-	infoY += 24
 
 	logY := g.logStartY()
-	drawNeonText(screen, "Журнал событий", g.faces.Normal, midX, logY, accent)
-	logY += 22
+	logBoxH := g.logLines()*16 + g.btnPad
+	drawCard(screen, midX-6, logY-10, midW+12, logBoxH+12)
+	drawNeonText(screen, "Журнал событий", g.faces.Normal, midX, logY-4, accent)
+	logY += 10
 	max := g.logLines()
-	for i := 0; i < len(st.Log) && i < max; i++ {
-		text.Draw(screen, st.Log[i], g.faces.Small, midX, logY, white)
-		logY += 16
+	linesDrawn := 0
+	for i := 0; i < len(st.Log) && linesDrawn < max; i++ {
+		wrapped := wrapText(g.faces.Small, st.Log[i], midW-16)
+		for _, w := range wrapped {
+			if linesDrawn >= max {
+				break
+			}
+			text.Draw(screen, w, g.faces.Small, midX, logY, white)
+			logY += 14
+			linesDrawn++
+		}
 	}
 
 	drawNeonText(screen, "Магазин семян", g.faces.Large, shopX, colTop+6, color.RGBA{0xff, 0x2e, 0xa8, 0xff})
-	text.Draw(screen, "Покупайте или открывайте новые культуры", g.faces.Small, shopX, colTop+34, muted)
+	drawCard(screen, shopX-6, colTop+30, g.shopWidth-g.columnPad*2+12, panelHeight-20)
+	text.Draw(screen, "Покупайте или открывайте новые культуры", g.faces.Small, shopX, colTop+46, muted)
 	shopY := g.shopListStartY()
 	for pt := domain.PlantType(0); pt < domain.PlantTypeCount; pt++ {
 		rowY := shopY + int(pt)*(g.btnH+g.btnPad)
 		status := fmt.Sprintf("Семена %s", domain.PlantNames[pt])
-		text.Draw(screen, status, g.faces.Normal, shopX, rowY+14, white)
+		text.Draw(screen, status, g.faces.Normal, shopX, rowY+10, white)
 		var line string
 		if !st.UnlockedSeeds[pt] {
 			line = fmt.Sprintf("Открыть за %d дуб., есть: %d", domain.SeedUnlockCosts[pt], st.Seeds[pt])
 		} else {
 			line = fmt.Sprintf("Цена: %d дуб., запас: %d", domain.SeedPrices[pt], st.Seeds[pt])
 		}
-		text.Draw(screen, line, g.faces.Small, shopX, rowY+34, muted)
+		for i, w := range wrapText(g.faces.Small, line, g.shopWidth-g.columnPad*3-110) {
+			text.Draw(screen, w, g.faces.Small, shopX, rowY+26+i*14, muted)
+		}
 		if st.HasSelectedSeed && st.SelectedSeed == pt {
-			text.Draw(screen, "▶ выбрано", g.faces.Small, shopX+170, rowY+22, accent)
+			text.Draw(screen, "▶ выбрано", g.faces.Small, shopX+190, rowY+10, accent)
 		}
 	}
 
@@ -289,7 +325,12 @@ func (g *Game) Draw(screen *ebiten.Image) {
 		cx := w/2 - eventW/2
 		cy := h/2 - g.btnH - g.btnPad
 		drawNeonText(screen, "Событие:", g.faces.Large, cx, cy-38, white)
-		text.Draw(screen, st.CurrentEvent.Message, g.faces.Normal, cx, cy-10, white)
+		msgLines := wrapText(g.faces.Normal, st.CurrentEvent.Message, eventW-16)
+		offset := 0
+		for _, line := range msgLines {
+			text.Draw(screen, line, g.faces.Normal, cx, cy-10+offset, white)
+			offset += 18
+		}
 	}
 
 	if st.Won {
@@ -326,6 +367,14 @@ func (g *Game) columnTop() int {
 	return g.margin + g.headerHeight()
 }
 
+func (g *Game) sectionGap() int {
+	return g.btnPad + 4
+}
+
+func (g *Game) statsHeight() int {
+	return 96
+}
+
 func (g *Game) actionCount() int {
 	return 5
 }
@@ -335,11 +384,11 @@ func (g *Game) upgradeCount() int {
 }
 
 func (g *Game) actionsStartY() int {
-	return g.columnTop() + 146
+	return g.columnTop() + g.statsHeight() + g.sectionGap()
 }
 
 func (g *Game) upgradesStartY() int {
-	return g.actionsStartY() + g.actionCount()*(g.btnH+g.btnPad) + g.btnPad*2
+	return g.actionsStartY()
 }
 
 func (g *Game) selectionRows() int {
@@ -347,23 +396,28 @@ func (g *Game) selectionRows() int {
 }
 
 func (g *Game) selectionStartY() int {
-	return g.upgradesStartY() + g.upgradeCount()*(g.btnH+g.btnPad) + g.btnPad*3
+	blockH := g.actionCount() * (g.btnH + g.btnPad)
+	upgradeH := g.upgradeCount() * (g.btnH + g.btnPad)
+	if upgradeH > blockH {
+		blockH = upgradeH
+	}
+	return g.actionsStartY() + blockH + g.sectionGap()
 }
 
 func (g *Game) infoStartY() int {
-	return g.selectionStartY() + g.selectionRows()*(g.btnH+g.btnPad) + g.btnPad*3
+	return g.selectionStartY() + g.selectionRows()*(g.btnH+g.btnPad) + g.sectionGap()
 }
 
 func (g *Game) infoBlockHeight() int {
-	return 190
+	return 220
 }
 
 func (g *Game) logStartY() int {
-	return g.infoStartY() + g.infoBlockHeight()
+	return g.infoStartY() + g.infoBlockHeight() + g.sectionGap()
 }
 
 func (g *Game) logLines() int {
-	return 9
+	return 12
 }
 
 func (g *Game) midColumnX() int {
@@ -392,6 +446,12 @@ func drawPanel(screen *ebiten.Image, x, y, w, h int, fill color.Color, border co
 	ebitenutil.DrawRect(screen, float64(x), float64(y+h-2), float64(w), 2, border)
 	ebitenutil.DrawRect(screen, float64(x), float64(y), 2, float64(h), border)
 	ebitenutil.DrawRect(screen, float64(x+w-2), float64(y), 2, float64(h), border)
+}
+
+func drawCard(screen *ebiten.Image, x, y, w, h int) {
+	fill := color.RGBA{0x0d, 0x0b, 0x16, 0xc8}
+	border := color.RGBA{0x42, 0xff, 0xe8, 0x70}
+	drawPanel(screen, x, y, w, h, fill, border)
 }
 
 func plantColor(pt domain.PlantType) color.RGBA {
@@ -432,6 +492,27 @@ func plantNameOrDash(p domain.Plot) string {
 }
 
 // ---- UI helpers (mouse buttons, layout, text) ----
+
+func wrapText(face font.Face, str string, maxWidth int) []string {
+	words := strings.Fields(str)
+	if len(words) == 0 {
+		return []string{""}
+	}
+
+	var lines []string
+	current := words[0]
+	for _, w := range words[1:] {
+		candidate := current + " " + w
+		if text.BoundString(face, candidate).Dx() <= maxWidth {
+			current = candidate
+			continue
+		}
+		lines = append(lines, current)
+		current = w
+	}
+	lines = append(lines, current)
+	return lines
+}
 
 func (g *Game) drawButton(screen *ebiten.Image, b Button, hovered bool) {
 	col := color.RGBA{0x0f, 0x0f, 0x1d, 0xff}
@@ -514,34 +595,40 @@ func (g *Game) buildButtons(sw, sh int) {
 	}
 
 	actionX := g.midColumnX() + g.columnPad
-	btnW := g.midWidth - g.columnPad*2
-	y := g.actionsStartY()
+	colW := (g.midWidth - g.columnPad*3) / 2
+	upgradeX := actionX + colW + g.columnPad
+	yAction := g.actionsStartY()
+	yUpgrade := g.upgradesStartY()
 
-	add := func(label string, enabled bool, cb func()) {
-		g.buttons = append(g.buttons, Button{Rect: image.Rect(actionX, y, actionX+btnW, y+g.btnH), Label: label, Enabled: enabled, OnClick: cb})
-		y += g.btnH + g.btnPad
+	addAction := func(label string, enabled bool, cb func()) {
+		g.buttons = append(g.buttons, Button{Rect: image.Rect(actionX, yAction, actionX+colW, yAction+g.btnH), Label: label, Enabled: enabled, OnClick: cb})
+		yAction += g.btnH + g.btnPad
+	}
+
+	addUpgrade := func(label string, enabled bool, cb func()) {
+		g.buttons = append(g.buttons, Button{Rect: image.Rect(upgradeX, yUpgrade, upgradeX+colW, yUpgrade+g.btnH), Label: label, Enabled: enabled, OnClick: cb})
+		yUpgrade += g.btnH + g.btnPad
 	}
 
 	canPlant := st.HasSelectedSeed && st.Seeds[st.SelectedSeed] > 0 && ((st.CanPlantBulk && hasAnyEmptyBought(st)) || (!st.CanPlantBulk && st.SelectedPlot >= 0 && st.SelectedPlot < len(st.Plots) && !st.Plots[st.SelectedPlot].HasPlant && st.Plots[st.SelectedPlot].Bought))
-	add("Посадить", canPlant, func() { g.svc.Plant() })
+	addAction("Посадить", canPlant, func() { g.svc.Plant() })
 
 	canWater := (st.CanWaterBulk && hasAnyWaterable(st)) || (!st.CanWaterBulk && st.SelectedPlot >= 0 && st.Plots[st.SelectedPlot].HasPlant && !st.Plots[st.SelectedPlot].Watered && !st.Plots[st.SelectedPlot].Harvestable)
-	add("Полить", canWater, func() { g.svc.Water() })
+	addAction("Полить", canWater, func() { g.svc.Water() })
 
 	canHarvest := (st.CanHarvestBulk && hasAnyHarvestable(st)) || (!st.CanHarvestBulk && st.SelectedPlot >= 0 && st.Plots[st.SelectedPlot].Harvestable)
-	add("Собрать", canHarvest, func() { g.svc.Harvest() })
+	addAction("Собрать", canHarvest, func() { g.svc.Harvest() })
 
 	canSell := hasAnyProduce(st)
-	add("Продать всё", canSell, func() { g.svc.SellAll() })
+	addAction("Продать всё", canSell, func() { g.svc.SellAll() })
 
 	canExpand := st.AvailablePlots < domain.TotalPlots && st.Coins >= domain.ExpandPlotCost(st.AvailablePlots)
-	add("Купить клетку", canExpand, func() { g.svc.ExpandField() })
+	addAction("Купить клетку", canExpand, func() { g.svc.ExpandField() })
 
 	// upgrades
-	y = g.upgradesStartY()
-	add(fmt.Sprintf("Засев x4 (50) [%s]", yesNo(st.CanPlantBulk)), !st.CanPlantBulk && st.Coins >= 50, func() { g.svc.BuyUpgradePlantBulk() })
-	add(fmt.Sprintf("Полив x4 (30) [%s]", yesNo(st.CanWaterBulk)), !st.CanWaterBulk && st.Coins >= 30, func() { g.svc.BuyUpgradeWaterBulk() })
-	add(fmt.Sprintf("Сбор x4 (40) [%s]", yesNo(st.CanHarvestBulk)), !st.CanHarvestBulk && st.Coins >= 40, func() { g.svc.BuyUpgradeHarvestBulk() })
+	addUpgrade(fmt.Sprintf("Засев x4 (50) [%s]", yesNo(st.CanPlantBulk)), !st.CanPlantBulk && st.Coins >= 50, func() { g.svc.BuyUpgradePlantBulk() })
+	addUpgrade(fmt.Sprintf("Полив x4 (30) [%s]", yesNo(st.CanWaterBulk)), !st.CanWaterBulk && st.Coins >= 30, func() { g.svc.BuyUpgradeWaterBulk() })
+	addUpgrade(fmt.Sprintf("Сбор x4 (40) [%s]", yesNo(st.CanHarvestBulk)), !st.CanHarvestBulk && st.Coins >= 40, func() { g.svc.BuyUpgradeHarvestBulk() })
 
 	// seed selection grid
 	selX := g.midColumnX() + g.columnPad

@@ -30,9 +30,9 @@ func loadFaces() Faces {
 		return truetype.NewFace(fnt, &truetype.Options{Size: size, DPI: 72})
 	}
 	return Faces{
-		Small:  mk(14),
-		Normal: mk(18),
-		Large:  mk(26),
+		Small:  mk(12),
+		Normal: mk(16),
+		Large:  mk(24),
 	}
 }
 
