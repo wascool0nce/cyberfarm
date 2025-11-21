@@ -20,8 +20,13 @@ import (
 type Game struct {
 	svc *usecase.Service
 
-	tile   int
-	margin int
+	tile     int
+	margin   int
+	hudWidth int
+
+	btnW   int
+	btnH   int
+	btnPad int
 
 	faces   Faces
 	buttons []Button
@@ -33,7 +38,18 @@ type Game struct {
 }
 
 func NewGame(svc *usecase.Service) *Game {
-	return &Game{svc: svc, tile: 40, margin: 14, faces: loadFaces(), hoveredButton: -1, hoveredPlot: -1}
+	return &Game{
+		svc:           svc,
+		tile:          42,
+		margin:        16,
+		hudWidth:      520,
+		btnW:          240,
+		btnH:          36,
+		btnPad:        12,
+		faces:         loadFaces(),
+		hoveredButton: -1,
+		hoveredPlot:   -1,
+	}
 }
 
 func (g *Game) Update() error {
@@ -172,13 +188,8 @@ func (g *Game) Draw(screen *ebiten.Image) {
 		g.drawButton(screen, b, i == g.hoveredButton)
 	}
 
-	y := g.margin + 110
-	btnH, pad := 30, 10
-	y += 5 * (btnH + pad)
-	y += 8
-	y += 3 * (btnH + pad)
-	y += pad
-	drawNeonText(screen, "Семена:", g.faces.Normal, hx, y-6, white)
+	y := g.seedsStartY()
+	drawNeonText(screen, "Семена:", g.faces.Normal, hx, y-10, white)
 	for pt := domain.PlantType(0); pt < domain.PlantTypeCount; pt++ {
 		lock := ""
 		if !st.UnlockedSeeds[pt] {
@@ -188,7 +199,7 @@ func (g *Game) Draw(screen *ebiten.Image) {
 		}
 		line := fmt.Sprintf("%s: %d%s", domain.PlantNames[pt], st.Seeds[pt], lock)
 		text.Draw(screen, line, g.faces.Small, hx+2, y-6, white)
-		y += btnH + 8
+		y += g.btnH + g.btnPad
 	}
 
 	lx := ox
@@ -204,10 +215,11 @@ func (g *Game) Draw(screen *ebiten.Image) {
 	if st.PausedForEvent && st.CurrentEvent != nil {
 		w, h := screen.Bounds().Dx(), screen.Bounds().Dy()
 		ebitenutil.DrawRect(screen, 0, 0, float64(w), float64(h), color.RGBA{0, 0, 0, 180})
-		cx := w/2 - 240
-		cy := h/2 - 90
-		drawNeonText(screen, "Событие:", g.faces.Large, cx, cy, white)
-		text.Draw(screen, st.CurrentEvent.Message, g.faces.Normal, cx, cy+26, white)
+		eventW := g.btnW
+		cx := w/2 - eventW/2
+		cy := h/2 - g.btnH - g.btnPad
+		drawNeonText(screen, "Событие:", g.faces.Large, cx, cy-38, white)
+		text.Draw(screen, st.CurrentEvent.Message, g.faces.Normal, cx, cy-10, white)
 	}
 
 	if st.Won {
@@ -221,8 +233,7 @@ func (g *Game) Draw(screen *ebiten.Image) {
 func (g *Game) Layout(outsideWidth, outsideHeight int) (screenWidth, screenHeight int) {
 	gridW := domain.FarmWidth*(g.tile+2) + g.margin*2
 	gridH := domain.FarmHeight*(g.tile+2) + g.margin*2 + 200
-	hudW := 420
-	return gridW + hudW, gridH
+	return gridW + g.hudWidth, gridH
 }
 
 func drawNeonText(screen *ebiten.Image, str string, face font.Face, x, y int, main color.Color) {
@@ -295,12 +306,17 @@ func (g *Game) drawButton(screen *ebiten.Image, b Button, hovered bool) {
 		glow := uint8(40 + 40*math.Sin(g.animPhase*6))
 		ebitenutil.DrawRect(screen, float64(b.Rect.Min.X-2), float64(b.Rect.Min.Y-2), float64(b.Rect.Dx()+4), float64(b.Rect.Dy()+4), color.RGBA{border.R, border.G, border.B, glow})
 	}
-	bounds := text.BoundString(g.faces.Normal, b.Label)
+	face := g.faces.Normal
+	bounds := text.BoundString(face, b.Label)
+	if bounds.Dx() > b.Rect.Dx()-12 {
+		face = g.faces.Small
+		bounds = text.BoundString(face, b.Label)
+	}
 	tw := bounds.Dx()
 	th := bounds.Dy()
 	tx := b.Rect.Min.X + (b.Rect.Dx()-tw)/2
 	ty := b.Rect.Min.Y + (b.Rect.Dy()+th)/2 - 2
-	text.Draw(screen, b.Label, g.faces.Normal, tx, ty, txt)
+	text.Draw(screen, b.Label, face, tx, ty, txt)
 }
 
 func pointInRect(x, y int, r image.Rectangle) bool {
@@ -329,22 +345,23 @@ func (g *Game) buildButtons(sw, sh int) {
 	g.buttons = g.buttons[:0]
 
 	if st.PausedForEvent && st.CurrentEvent != nil {
-		cx := sw/2 - 220
-		cy := sh/2 - 16
+		eventW := g.btnW
+		eventH := g.btnH
+		cx := sw/2 - eventW/2
+		cy := sh/2 - eventH
 		g.buttons = append(g.buttons,
-			Button{Rect: image.Rect(cx, cy, cx+200, cy+32), Label: st.CurrentEvent.Choices[0].Text, Enabled: true, OnClick: func() { g.svc.ResolveEvent(0) }},
-			Button{Rect: image.Rect(cx, cy+40, cx+200, cy+72), Label: st.CurrentEvent.Choices[1].Text, Enabled: true, OnClick: func() { g.svc.ResolveEvent(1) }},
+			Button{Rect: image.Rect(cx, cy, cx+eventW, cy+eventH), Label: st.CurrentEvent.Choices[0].Text, Enabled: true, OnClick: func() { g.svc.ResolveEvent(0) }},
+			Button{Rect: image.Rect(cx, cy+eventH+g.btnPad, cx+eventW, cy+eventH*2+g.btnPad), Label: st.CurrentEvent.Choices[1].Text, Enabled: true, OnClick: func() { g.svc.ResolveEvent(1) }},
 		)
 		return
 	}
 
 	hx := g.margin + domain.FarmWidth*(g.tile+2) + g.margin
-	y := g.margin + 90
+	y := g.actionStartY()
 
-	btnW, btnH, pad := 190, 30, 10
 	add := func(label string, enabled bool, cb func()) {
-		g.buttons = append(g.buttons, Button{Rect: image.Rect(hx, y, hx+btnW, y+btnH), Label: label, Enabled: enabled, OnClick: cb})
-		y += btnH + pad
+		g.buttons = append(g.buttons, Button{Rect: image.Rect(hx, y, hx+g.btnW, y+g.btnH), Label: label, Enabled: enabled, OnClick: cb})
+		y += g.btnH + g.btnPad
 	}
 
 	canPlant := st.HasSelectedSeed && st.Seeds[st.SelectedSeed] > 0 && ((st.CanPlantBulk && hasAnyEmptyBought(st)) || (!st.CanPlantBulk && st.SelectedPlot >= 0 && st.SelectedPlot < len(st.Plots) && !st.Plots[st.SelectedPlot].HasPlant && st.Plots[st.SelectedPlot].Bought))
@@ -363,16 +380,19 @@ func (g *Game) buildButtons(sw, sh int) {
 	add("Купить клетку", canExpand, func() { g.svc.ExpandField() })
 
 	// upgrades
-	y += 6
+	y += g.btnPad
 	add(fmt.Sprintf("Засев x4 (50) [%s]", yesNo(st.CanPlantBulk)), !st.CanPlantBulk && st.Coins >= 50, func() { g.svc.BuyUpgradePlantBulk() })
 	add(fmt.Sprintf("Полив x4 (30) [%s]", yesNo(st.CanWaterBulk)), !st.CanWaterBulk && st.Coins >= 30, func() { g.svc.BuyUpgradeWaterBulk() })
 	add(fmt.Sprintf("Сбор x4 (40) [%s]", yesNo(st.CanHarvestBulk)), !st.CanHarvestBulk && st.Coins >= 40, func() { g.svc.BuyUpgradeHarvestBulk() })
 
 	// seeds rows
-	y += pad
+	y += g.btnPad
 	for pt := domain.PlantType(0); pt < domain.PlantTypeCount; pt++ {
 		selectEnabled := st.UnlockedSeeds[pt] && st.Seeds[pt] > 0
-		g.buttons = append(g.buttons, Button{Rect: image.Rect(hx, y, hx+112, y+btnH), Label: "Выбрать", Enabled: selectEnabled, OnClick: func(p domain.PlantType) func() { return func() { g.svc.SelectSeed(p) } }(pt)})
+		selectW := 132
+		buyW := 172
+		statusW := 112
+		g.buttons = append(g.buttons, Button{Rect: image.Rect(hx, y, hx+selectW, y+g.btnH), Label: "Выбрать", Enabled: selectEnabled, OnClick: func(p domain.PlantType) func() { return func() { g.svc.SelectSeed(p) } }(pt)})
 		var label string
 		var enabled bool
 		if !st.UnlockedSeeds[pt] {
@@ -382,13 +402,26 @@ func (g *Game) buildButtons(sw, sh int) {
 			label = fmt.Sprintf("Купить (%d)", domain.SeedPrices[pt])
 			enabled = st.Coins >= domain.SeedPrices[pt]
 		}
-		g.buttons = append(g.buttons, Button{Rect: image.Rect(hx+118, y, hx+118+138, y+btnH), Label: label, Enabled: enabled, OnClick: func(p domain.PlantType) func() { return func() { g.svc.BuySeedOrUnlock(p) } }(pt)})
+		g.buttons = append(g.buttons, Button{Rect: image.Rect(hx+selectW+g.btnPad, y, hx+selectW+g.btnPad+buyW, y+g.btnH), Label: label, Enabled: enabled, OnClick: func(p domain.PlantType) func() { return func() { g.svc.BuySeedOrUnlock(p) } }(pt)})
 
 		if st.HasSelectedSeed && st.SelectedSeed == pt {
-			g.buttons = append(g.buttons, Button{Rect: image.Rect(hx+262, y, hx+262+86, y+btnH), Label: "[выбрано]", Enabled: false})
+			g.buttons = append(g.buttons, Button{Rect: image.Rect(hx+selectW+g.btnPad+buyW+g.btnPad, y, hx+selectW+g.btnPad+buyW+g.btnPad+statusW, y+g.btnH), Label: "[выбрано]", Enabled: false})
 		}
-		y += btnH + 8
+		y += g.btnH + g.btnPad
 	}
+}
+
+func (g *Game) actionStartY() int {
+	return g.margin + 116
+}
+
+func (g *Game) seedsStartY() int {
+	y := g.actionStartY()
+	y += 5 * (g.btnH + g.btnPad)
+	y += g.btnPad
+	y += 3 * (g.btnH + g.btnPad)
+	y += g.btnPad
+	return y
 }
 
 func hasAnyEmptyBought(st *domain.GameState) bool {
