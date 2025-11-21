@@ -39,14 +39,14 @@ func loadFaces() Faces {
 func loadFontBytes() ([]byte, error) {
 	searchPaths := []string{
 		filepath.Join("internal", "adapter", "ebitengame", "assets", "CyberMono.ttf"),
-		filepath.Join("assets", "CyberMono.ttf"),
+		filepath.Join("assets", "PressStart2P-Regular.ttf"),
 	}
 
 	if exePath, err := os.Executable(); err == nil {
 		exeDir := filepath.Dir(exePath)
 		searchPaths = append([]string{
-			filepath.Join(exeDir, "assets", "CyberMono.ttf"),
-			filepath.Join(exeDir, "CyberMono.ttf"),
+			filepath.Join(exeDir, "assets", "PressStart2P-Regular.ttf"),
+			filepath.Join(exeDir, "PressStart2P-Regular.ttf"),
 		}, searchPaths...)
 	}
 
